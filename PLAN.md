@@ -18,6 +18,10 @@ Attacker "hands-on-keyboard" activity is best analyzed through shell history, bu
 * **Automated Alerting:** Automatically scans command strings for high-risk keywords (e.g., `wget`, `curl`, `chmod +x`, `nc`, `base64`, `shred`, or log-clearing commands like `history -c`).
 * **Blackboard Integration:** Posts flagged strings to the Autopsy Blackboard as custom or standard artifacts (e.g., `TSK_SUSPICIOUS_COMMAND`), allowing immediate filtering by the investigator.
 
+### Status
+
+Initial version complete
+
 ---
 
 ## 2. Linux Persistence & Auto-Start Analyzer
