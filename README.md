@@ -34,6 +34,8 @@ Autopsy_Linux_Plugins/
 │   └── LinuxShellHistoryModule.py     # File ingest: shell history triage
 ├── LinuxPersistenceModule/
 │   └── LinuxPersistenceModule.py      # Data source ingest: persistence triage
+├── LinuxAuthLogModule/
+│   └── LinuxAuthLogModule.py          # File ingest: SSH & authentication logs
 └── <FutureModuleName>/                # One directory per module (same pattern)
     └── <FutureModuleName>.py
 ```
@@ -48,7 +50,7 @@ When adding a module, create a sibling directory named after the module, place t
 | --- | --- | --- | --- |
 | [Linux Shell History & Command Triage](#linux-shell-history--command-triage) | File Ingest | **Available** (v1.1.0) | [`LinuxShellHistoryModule/`](LinuxShellHistoryModule/) |
 | [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer) | Data Source Ingest | **Available** (v1.0.0) | [`LinuxPersistenceModule/`](LinuxPersistenceModule/) |
-| [SSH & Authentication Log Parser](#ssh--authentication-log-parser-planned) | File Ingest | Planned | — |
+| [SSH & Authentication Log Parser](#ssh--authentication-log-parser) | File Ingest | **Available** (v1.0.0) | [`LinuxAuthLogModule/`](LinuxAuthLogModule/) |
 | [Web Shell & Server Triage](#web-shell--server-triage-planned) | File Ingest | Planned | — |
 
 ---
@@ -68,9 +70,10 @@ Autopsy discovers ingest modules from a per-user **python_modules** folder. Copy
 ```text
 copy LinuxShellHistoryModule\LinuxShellHistoryModule.py %APPDATA%\autopsy\python_modules\
 copy LinuxPersistenceModule\LinuxPersistenceModule.py %APPDATA%\autopsy\python_modules\
+copy LinuxAuthLogModule\LinuxAuthLogModule.py %APPDATA%\autopsy\python_modules\
 ```
 
-After copying, restart Autopsy. Modules appear in the ingest module list as **Linux Shell History & Command Triage** and **Linux Persistence & Auto-Start Analyzer**.
+After copying, restart Autopsy. Modules appear in the ingest module list under their display names (see the [module catalog](#module-catalog)).
 
 ---
 
@@ -194,11 +197,67 @@ Suspicious entries receive a **Likely Notable** score; other entries are informa
 
 ---
 
-### SSH & Authentication Log Parser (planned)
+### SSH & Authentication Log Parser
 
-**Type:** File Ingest (planned)
+**Type:** File Ingest  
+**Display name:** SSH & Authentication Log Parser  
+**Version:** 1.0.0  
+**Source:** [`LinuxAuthLogModule/LinuxAuthLogModule.py`](LinuxAuthLogModule/LinuxAuthLogModule.py)
 
-Will target `/var/log/auth.log` (Debian/Ubuntu family) and `/var/log/secure` (RHEL/CentOS/Rocky). Goal: structured blackboard entries for logins, SSH key acceptance, `sudo` use, and account/group changes to support lateral-movement and brute-force analysis.
+#### Purpose
+
+Lateral movement, privilege escalation, and brute-force activity leave traces in Linux authentication logs. This module parses `auth.log` and `secure` during file ingest, extracts structured fields from each relevant line, and posts timeline-ready entries to the blackboard.
+
+#### Files processed
+
+Under `/var/log/`:
+
+| File pattern | Distribution |
+| --- | --- |
+| `auth.log` | Debian/Ubuntu |
+| `auth.log.*` (uncompressed rotations) | Debian/Ubuntu |
+| `secure` | RHEL/CentOS/Rocky |
+| `secure-*`, `secure.*` (uncompressed rotations) | RHEL/CentOS/Rocky |
+
+Compressed rotations (`.gz`) are skipped in this version.
+
+#### Events parsed
+
+| Event type | Set name | Status |
+| --- | --- | --- |
+| SSH login success (password, public key, keyboard-interactive) | `Linux Authentication - SSH Success` | Success |
+| SSH failed password / invalid user | `Linux Authentication - Failed Logins` | Failed |
+| PAM authentication failure | `Linux Authentication - Failed Logins` | Failed |
+| Sudo command execution | `Linux Authentication - Sudo` | Success |
+| User or group created / modified | `Linux Authentication - Account Changes` | Created / Modified |
+
+Failed login and account-change events are scored **Likely Notable**.
+
+#### Blackboard output
+
+Entries are posted as **Interesting File Hit** artifacts with:
+
+| Attribute | Content |
+| --- | --- |
+| Set name | One of the sets listed above |
+| Name | Event type (e.g. `SSH Login Failed`, `Sudo Command`) |
+| Description | Status (`Success`, `Failed`, `Created`, `Modified`) |
+| User name | Target account (SSH user, sudo `USER=`, or created account) |
+| IP address | Source IP when present in the log line |
+| Host | Hostname from the syslog header |
+| Datetime | UNIX epoch (seconds), when the timestamp could be parsed |
+| Comment | Caller, port, auth method, command, key fingerprint, group, and raw log line |
+
+#### Timestamp handling
+
+- **ISO-8601** timestamps (common on newer rsyslog/systemd hosts) are parsed directly.
+- **Traditional syslog** timestamps (`May 29 10:15:01`) use the year inferred from the log file’s modification time.
+
+#### Operational notes
+
+- Enable as a **file ingest** module when running ingest on a Linux image.
+- Large rotated logs are read in full; very busy servers may produce many blackboard entries.
+- Validate failed-login clusters and new accounts against other case evidence before drawing conclusions.
 
 ---
 
