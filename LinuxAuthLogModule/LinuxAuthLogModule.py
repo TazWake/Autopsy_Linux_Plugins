@@ -1,5 +1,7 @@
 import java.util.logging.Level as Level
+import jarray
 import re
+from java.lang import String
 from java.text import SimpleDateFormat
 from java.util import Arrays
 from java.util import Calendar
@@ -9,8 +11,10 @@ from org.sleuthkit.autopsy.casemodule import Case
 from org.sleuthkit.autopsy.casemodule.services import Blackboard
 from org.sleuthkit.autopsy.coreutils import Logger
 from org.sleuthkit.autopsy.ingest import FileIngestModule
+from org.sleuthkit.autopsy.ingest import IngestMessage
 from org.sleuthkit.autopsy.ingest import IngestModule
 from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
+from org.sleuthkit.autopsy.ingest import IngestServices
 from org.sleuthkit.datamodel import BlackboardArtifact
 from org.sleuthkit.datamodel import BlackboardAttribute
 from org.sleuthkit.datamodel import ReadContentInputStream
@@ -57,7 +61,7 @@ class LinuxAuthLogModuleFactory(IngestModuleFactoryAdapter):
         )
 
     def getModuleVersionNumber(self):
-        return "1.0.0"
+        return "1.0.1"
 
     def isFileIngestModuleFactory(self):
         return True
@@ -72,6 +76,8 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
         self.context = None
         self.blackboard = None
         self.event_patterns = self.build_event_patterns()
+        self.artifact_count = 0
+        self.log_files_processed = 0
 
     def startUp(self, context):
         self.context = context
@@ -79,6 +85,13 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
         self.logger.log(Level.INFO, MODULE_NAME + " ingest started.")
 
     def shutDown(self):
+        message = IngestMessage.createMessage(
+            IngestMessage.MessageType.DATA,
+            MODULE_NAME,
+            "Posted " + str(self.artifact_count) + " authentication events from "
+            + str(self.log_files_processed) + " log files.",
+        )
+        IngestServices.getInstance().postMessage(message)
         self.logger.log(Level.INFO, MODULE_NAME + " ingest completed.")
 
     def process(self, file):
@@ -92,6 +105,8 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
             content = self.read_file_text(file)
             if content is None:
                 return IngestModule.ProcessResult.OK
+
+            self.log_files_processed += 1
 
             for line in content.splitlines():
                 if self.context.isJobCancelled():
@@ -131,9 +146,18 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
                 return ""
 
             input_stream = ReadContentInputStream(file)
-            buffer = bytearray(file_size)
-            input_stream.read(buffer)
-            return str(buffer)
+            buffer = jarray.zeros(int(file_size), "b")
+            total_read = 0
+            while total_read < file_size:
+                bytes_read = input_stream.read(buffer, total_read, int(file_size) - total_read)
+                if bytes_read <= 0:
+                    break
+                total_read += bytes_read
+            if total_read <= 0:
+                return ""
+
+            # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
+            return String(buffer, 0, total_read, "UTF-8")
         except Exception as ex:
             self.logger.log(
                 Level.WARNING,
@@ -453,6 +477,7 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
                     analysis_result,
                     MODULE_NAME,
                 )
+            self.artifact_count += 1
         except Blackboard.BlackboardException as ex:
             self.logger.log(Level.SEVERE, "Failed to post authentication event.", ex)
         except Exception as ex:

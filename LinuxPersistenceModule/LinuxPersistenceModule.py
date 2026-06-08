@@ -1,6 +1,7 @@
 import java.util.logging.Level as Level
+import jarray
 import re
-from java.util import Arrays
+from java.lang import String
 from org.sleuthkit.autopsy.casemodule import Case
 from org.sleuthkit.autopsy.casemodule.services import Blackboard
 from org.sleuthkit.autopsy.coreutils import Logger
@@ -12,8 +13,6 @@ from org.sleuthkit.autopsy.ingest import IngestServices
 from org.sleuthkit.datamodel import BlackboardArtifact
 from org.sleuthkit.datamodel import BlackboardAttribute
 from org.sleuthkit.datamodel import ReadContentInputStream
-from org.sleuthkit.datamodel import Score
-
 MODULE_NAME = "Linux Persistence & Auto-Start Analyzer"
 SET_NAME = "Linux Persistence"
 SUSPICIOUS_SET_NAME = "Linux Persistence - Suspicious Paths"
@@ -49,7 +48,7 @@ class LinuxPersistenceModuleFactory(IngestModuleFactoryAdapter):
         )
 
     def getModuleVersionNumber(self):
-        return "1.0.0"
+        return "1.0.2"
 
     def isDataSourceIngestModuleFactory(self):
         return True
@@ -222,10 +221,21 @@ class LinuxPersistenceDataSourceIngestModule(DataSourceIngestModule):
             if file_size <= 0:
                 return ""
 
+            # Jython must use jarray for ReadContentInputStream.read(byte[]).
             input_stream = ReadContentInputStream(abstract_file)
-            buffer = bytearray(file_size)
-            input_stream.read(buffer)
-            return str(buffer)
+            buffer = jarray.zeros(int(file_size), "b")
+            total_read = 0
+            while total_read < file_size:
+                bytes_read = input_stream.read(buffer, total_read, int(file_size) - total_read)
+                if bytes_read <= 0:
+                    break
+                total_read += bytes_read
+
+            if total_read <= 0:
+                return ""
+
+            # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
+            return String(buffer, 0, total_read, "UTF-8")
         except Exception as ex:
             self.logger.log(
                 Level.WARNING,
@@ -441,7 +451,6 @@ class LinuxPersistenceDataSourceIngestModule(DataSourceIngestModule):
     def post_persistence_entry(self, abstract_file, mechanism, command, username, schedule, detail):
         suspicious, matched_prefix = self.is_suspicious_command(command)
         set_name = SUSPICIOUS_SET_NAME if suspicious else SET_NAME
-        score = Score.SCORE_LIKELY_NOTABLE if suspicious else Score.SCORE_NONE
 
         program = self.extract_primary_executable(command)
         comment_parts = [
@@ -456,45 +465,35 @@ class LinuxPersistenceDataSourceIngestModule(DataSourceIngestModule):
 
         comment = " | ".join(comment_parts)
 
-        attributes = Arrays.asList(
-            BlackboardAttribute(
+        try:
+            art = abstract_file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_INTERESTING_FILE_HIT)
+            art.addAttribute(BlackboardAttribute(
                 BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SET_NAME,
                 MODULE_NAME,
                 set_name,
-            ),
-            BlackboardAttribute(
+            ))
+            art.addAttribute(BlackboardAttribute(
                 BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME,
                 MODULE_NAME,
                 username,
-            ),
-            BlackboardAttribute(
+            ))
+            art.addAttribute(BlackboardAttribute(
                 BlackboardAttribute.ATTRIBUTE_TYPE.TSK_PROG_NAME,
                 MODULE_NAME,
                 program if program else command,
-            ),
-            BlackboardAttribute(
+            ))
+            art.addAttribute(BlackboardAttribute(
                 BlackboardAttribute.ATTRIBUTE_TYPE.TSK_COMMENT,
                 MODULE_NAME,
                 comment,
-            ),
-            BlackboardAttribute(
+            ))
+            art.addAttribute(BlackboardAttribute(
                 BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME,
                 MODULE_NAME,
                 mechanism,
-            ),
-        )
+            ))
 
-        try:
-            analysis_result = abstract_file.newAnalysisResult(
-                BlackboardArtifact.Type.TSK_INTERESTING_FILE_HIT,
-                score,
-                None,
-                mechanism,
-                None,
-                attributes,
-            ).getAnalysisResult()
-
-            self.blackboard.postArtifact(analysis_result, MODULE_NAME, self.context.getJobId())
+            self.blackboard.postArtifact(art, MODULE_NAME, self.context.getJobId())
             self.artifact_count += 1
         except Blackboard.BlackboardException as ex:
             self.logger.log(Level.SEVERE, "Failed to post persistence artifact.", ex)

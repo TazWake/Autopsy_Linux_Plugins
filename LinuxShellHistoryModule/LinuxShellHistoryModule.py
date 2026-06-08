@@ -1,11 +1,15 @@
 import java.util.logging.Level as Level
+import jarray
+from java.lang import String
 from java.lang import System
 from org.sleuthkit.autopsy.casemodule import Case
 from org.sleuthkit.autopsy.casemodule.services import Blackboard
 from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
 from org.sleuthkit.autopsy.ingest import FileIngestModule
+from org.sleuthkit.autopsy.ingest import IngestMessage
 from org.sleuthkit.autopsy.ingest import IngestModule
 from org.sleuthkit.autopsy.ingest import IngestModuleFactory
+from org.sleuthkit.autopsy.ingest import IngestServices
 from org.sleuthkit.autopsy.coreutils import Logger
 from org.sleuthkit.datamodel import BlackboardArtifact
 from org.sleuthkit.datamodel import BlackboardAttribute
@@ -22,7 +26,7 @@ class LinuxShellHistoryModuleFactory(IngestModuleFactoryAdapter):
         return "Parses Linux shell history, extracts execution timestamps, and identifies suspicious user activity."
 
     def getModuleVersionNumber(self):
-        return "1.1.0"
+        return "1.1.1"
 
     def isFileIngestModuleFactory(self):
         return True
@@ -36,6 +40,8 @@ class LinuxShellHistoryFileIngestModule(FileIngestModule):
         self.logger = Logger.getLogger("LinuxShellHistoryModule")
         # High-risk DFIR keywords/patterns to flag
         self.suspicious_keywords = ["wget", "curl", "chmod +x", "nc ", "base64", "shred", "history -c", "/dev/shm"]
+        self.artifact_count = 0
+        self.history_files_processed = 0
 
     def startUp(self, context):
         self.logger.log(Level.INFO, "Linux Shell History Module Ingest Started.")
@@ -53,12 +59,20 @@ class LinuxShellHistoryFileIngestModule(FileIngestModule):
         username = self.extract_username(file.getParentPath())
 
         try:
-            # Read file content safely via Autopsy Stream
+            # Jython must use jarray for ReadContentInputStream.read(byte[]).
+            file_size = int(file.getSize())
             inputStream = ReadContentInputStream(file)
-            buffer = bytearray(file.getSize())
-            inputStream.read(buffer)
-            content = str(buffer)
+            buffer = jarray.zeros(file_size, "b")
+            total_read = 0
+            while total_read < file_size:
+                bytes_read = inputStream.read(buffer, total_read, file_size - total_read)
+                if bytes_read <= 0:
+                    break
+                total_read += bytes_read
+            # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
+            content = String(buffer, 0, total_read, "UTF-8")
             lines = content.splitlines()
+            self.history_files_processed += 1
 
             # Stateful Tracking Variables
             current_timestamp = None
@@ -156,9 +170,17 @@ class LinuxShellHistoryFileIngestModule(FileIngestModule):
 
             # Push up to the GUI layout engine
             Case.getCurrentCase().getServices().getBlackboard().postArtifact(art, "Linux Shell History Triage Module")
-            
+            self.artifact_count += 1
+
         except Exception as ex:
             self.logger.log(Level.SEVERE, "Failed to post shell history entry to blackboard.", ex)
 
     def shutDown(self):
+        message = IngestMessage.createMessage(
+            IngestMessage.MessageType.DATA,
+            "Linux Shell History & Command Triage",
+            "Posted " + str(self.artifact_count) + " suspicious commands from "
+            + str(self.history_files_processed) + " history files.",
+        )
+        IngestServices.getInstance().postMessage(message)
         self.logger.log(Level.INFO, "Linux Shell History Module Ingest Completed.")

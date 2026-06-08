@@ -49,7 +49,7 @@ When adding a module, create a sibling directory named after the module, place t
 | Module | Ingest type | Status | Path |
 | --- | --- | --- | --- |
 | [Linux Shell History & Command Triage](#linux-shell-history--command-triage) | File Ingest | **Available** (v1.1.0) | [`LinuxShellHistoryModule/`](LinuxShellHistoryModule/) |
-| [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer) | Data Source Ingest | **Available** (v1.0.0) | [`LinuxPersistenceModule/`](LinuxPersistenceModule/) |
+| [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer) | Data Source Ingest | **Available** (v1.0.1) | [`LinuxPersistenceModule/`](LinuxPersistenceModule/) |
 | [SSH & Authentication Log Parser](#ssh--authentication-log-parser) | File Ingest | **Available** (v1.0.0) | [`LinuxAuthLogModule/`](LinuxAuthLogModule/) |
 | [Web Shell & Server Triage](#web-shell--server-triage-planned) | File Ingest | Planned | — |
 
@@ -65,7 +65,7 @@ Autopsy discovers **Jython ingest modules** from a per-user `python_modules` fol
 | Linux | `~/.autopsy/python_modules/` |
 | macOS | `~/Library/Application Support/autopsy/python_modules/` |
 
-Confirm the exact path in Autopsy: **Tools → Python Scripts** (opens the folder).
+Confirm the exact path in Autopsy: **Tools → Python Scripts** (opens the folder). On some installs this is under a `dev` subfolder, e.g. `%APPDATA%\autopsy\dev\python_modules\` — always use the path Autopsy opens, not the installation directory.
 
 #### Install layout (required)
 
@@ -95,9 +95,28 @@ xcopy /E /I LinuxAuthLogModule   %APPDATA%\Autopsy\python_modules\LinuxAuthLogMo
 - **No NBI / `.jar` packaging** — that applies to Java modules only.
 - **No license file** in the module folder — the repo `LICENSE` governs source distribution; Autopsy does not require a separate license registration step.
 
-After copying, **restart Autopsy**. Then enable the modules under **Tools → Options → Ingest Modules** (or in the ingest profile when adding a data source). They appear under their display names (see the [module catalog](#module-catalog)).
+After copying, **restart Autopsy**.
 
-If a module fails to load, Autopsy usually shows an error dialog and writes details to `%APPDATA%\Autopsy\var\log\`.
+#### Enabling modules (Autopsy 4.x)
+
+There is no separate **Ingest Modules** options page. Module selection is done through **ingest profiles**:
+
+1. **Tools → Options → Ingest → Profiles**
+2. Select a profile (or click **New Profile**), then **Edit Profile**
+3. Tick the modules you want (e.g. *Linux Shell History & Command Triage*, *Linux Persistence & Auto-Start Analyzer*, *SSH & Authentication Log Parser*)
+4. Save the profile
+
+Run ingest via **Tools → Run Ingest Modules** (or when adding a data source), and choose that profile — or pick **Custom Settings** in the wizard to configure modules per run.
+
+#### Verifying load
+
+After restart, check the case log (`<case>/Log/autopsy.log.0`) or Autopsy log for lines like:
+
+```text
+Found ingest module factory: name = Linux Shell History & Command Triage, version = 1.1.0
+```
+
+If modules are missing from that list and there is no `Failed to load` entry, the usual cause is a flat `.py` file directly in `python_modules` (wrong layout). If loading fails, Autopsy shows an error dialog and logs the stack trace.
 
 ---
 
@@ -168,7 +187,7 @@ View hits under **Interesting Items** in the Autopsy UI. Use the case timeline w
 
 **Type:** Data Source Ingest  
 **Display name:** Linux Persistence & Auto-Start Analyzer  
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Source:** [`LinuxPersistenceModule/LinuxPersistenceModule.py`](LinuxPersistenceModule/LinuxPersistenceModule.py)
 
 #### Purpose
