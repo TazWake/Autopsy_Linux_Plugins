@@ -32,6 +32,8 @@ Autopsy_Linux_Plugins/
 ├── LICENSE                            # GPLv3
 ├── LinuxShellHistoryModule/
 │   └── LinuxShellHistoryModule.py     # File ingest: shell history triage
+├── LinuxPersistenceModule/
+│   └── LinuxPersistenceModule.py      # Data source ingest: persistence triage
 └── <FutureModuleName>/                # One directory per module (same pattern)
     └── <FutureModuleName>.py
 ```
@@ -45,7 +47,7 @@ When adding a module, create a sibling directory named after the module, place t
 | Module | Ingest type | Status | Path |
 | --- | --- | --- | --- |
 | [Linux Shell History & Command Triage](#linux-shell-history--command-triage) | File Ingest | **Available** (v1.1.0) | [`LinuxShellHistoryModule/`](LinuxShellHistoryModule/) |
-| [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer-planned) | Data Source Ingest | Planned | — |
+| [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer) | Data Source Ingest | **Available** (v1.0.0) | [`LinuxPersistenceModule/`](LinuxPersistenceModule/) |
 | [SSH & Authentication Log Parser](#ssh--authentication-log-parser-planned) | File Ingest | Planned | — |
 | [Web Shell & Server Triage](#web-shell--server-triage-planned) | File Ingest | Planned | — |
 
@@ -65,9 +67,10 @@ Autopsy discovers ingest modules from a per-user **python_modules** folder. Copy
 
 ```text
 copy LinuxShellHistoryModule\LinuxShellHistoryModule.py %APPDATA%\autopsy\python_modules\
+copy LinuxPersistenceModule\LinuxPersistenceModule.py %APPDATA%\autopsy\python_modules\
 ```
 
-After copying, restart Autopsy. The module should appear as **Linux Shell History & Command Triage** in the ingest module list.
+After copying, restart Autopsy. Modules appear in the ingest module list as **Linux Shell History & Command Triage** and **Linux Persistence & Auto-Start Analyzer**.
 
 ---
 
@@ -134,11 +137,60 @@ View hits under **Interesting Items** in the Autopsy UI. Use the case timeline w
 
 ---
 
-### Linux Persistence & Auto-Start Analyzer (planned)
+### Linux Persistence & Auto-Start Analyzer
 
-**Type:** Data Source Ingest (planned)
+**Type:** Data Source Ingest  
+**Display name:** Linux Persistence & Auto-Start Analyzer  
+**Version:** 1.0.0  
+**Source:** [`LinuxPersistenceModule/LinuxPersistenceModule.py`](LinuxPersistenceModule/LinuxPersistenceModule.py)
 
-Will focus on Linux persistence: `/etc/crontab`, `/var/spool/cron/crontabs/*`, systemd unit directories, and `/etc/rc.local`. Goal: unified blackboard visibility for scheduled tasks and services, with emphasis on executables running from unusual paths (`/tmp`, `/dev/shm`, `/var/tmp`).
+#### Purpose
+
+Malware and threat actors commonly survive reboots by abusing cron, systemd, or legacy boot scripts. This module queries the case database for known persistence paths (via Autopsy’s `FileManager`), parses each artifact, and posts structured entries to the blackboard. Commands that execute from unusual directories are elevated into a separate suspicious set for faster triage.
+
+#### Artifacts scanned
+
+| Location | Mechanism |
+| --- | --- |
+| `/etc/crontab` | System-wide cron |
+| `/etc/cron.d/` | Cron drop-in files |
+| `/var/spool/cron/crontabs/` | Per-user crontabs (Debian/Ubuntu style) |
+| `/var/spool/cron/` | Per-user crontabs (RHEL/CentOS style) |
+| `/etc/systemd/system/` | Administrator and attacker-defined systemd units |
+| `/usr/lib/systemd/system/` | Vendor units (suspicious `ExecStart` paths only) |
+| `/etc/rc.local` | Legacy boot script |
+
+#### Parsed fields
+
+- **Cron:** schedule, owning user, command (including `@reboot` / `@daily` shortcuts in user crontabs)
+- **Systemd services:** `ExecStart`, `ExecStartPre`, `ExecStartPost`, `ExecReload`, and `User=` when present
+- **Systemd timers:** `OnCalendar`, `OnBootSec`, `OnUnitActiveSec`, `OnStartupSec` (under `/etc/systemd/system/` only)
+- **rc.local:** non-comment commands (excluding bare `exit 0`)
+
+#### Blackboard output
+
+Entries are posted as **Interesting File Hit** artifacts with:
+
+| Attribute | Content |
+| --- | --- |
+| Set name | `Linux Persistence` or `Linux Persistence - Suspicious Paths` |
+| User name | Cron owner, systemd `User=`, or `root` / `system` as appropriate |
+| Program name | Primary executable token extracted from the command |
+| Name | Mechanism type (e.g. `Cron (user crontab)`, `Systemd service`) |
+| Comment | Schedule, full command, mechanism detail, and suspicious-path match when applicable |
+
+Suspicious execution paths (substring match, case-insensitive) include:
+
+`/tmp/`, `/var/tmp/`, `/dev/shm/`, `/run/shm/`
+
+Suspicious entries receive a **Likely Notable** score; other entries are informational.
+
+#### Operational notes
+
+- Enable as a **data source ingest** module when adding or re-running ingest on a Linux image.
+- Vendor systemd units under `/usr/lib/systemd/system/` are not fully enumerated (to avoid thousands of package units); only units whose `ExecStart` references a suspicious path are reported.
+- Cron environment lines (e.g. `CRON_TZ=`) are skipped; invalid cron lines are ignored silently.
+- Validate hits in context—legitimate admin tasks sometimes use `/tmp` or user systemd units.
 
 ---
 
