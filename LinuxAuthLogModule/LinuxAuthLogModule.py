@@ -156,7 +156,7 @@ class LinuxAuthLogFileIngestModule(FileIngestModule):
             if total_read <= 0:
                 return ""
 
-            # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
+            # str(jarray) returns "array('b', [...])" - decode bytes to text instead.
             return String(buffer, 0, total_read, "UTF-8").replace("\x00", "")
         except Exception as ex:
             self.logger.log(

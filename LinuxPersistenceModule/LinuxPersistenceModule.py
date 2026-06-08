@@ -234,7 +234,7 @@ class LinuxPersistenceDataSourceIngestModule(DataSourceIngestModule):
             if total_read <= 0:
                 return ""
 
-            # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
+            # str(jarray) returns "array('b', [...])" - decode bytes to text instead.
             # Debian user crontabs may include null-byte padding before the text body.
             return String(buffer, 0, total_read, "UTF-8").replace("\x00", "")
         except Exception as ex:
