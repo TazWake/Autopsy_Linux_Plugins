@@ -70,7 +70,7 @@ class LinuxShellHistoryFileIngestModule(FileIngestModule):
                     break
                 total_read += bytes_read
             # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
-            content = String(buffer, 0, total_read, "UTF-8")
+            content = String(buffer, 0, total_read, "UTF-8").replace("\x00", "")
             lines = content.splitlines()
             self.history_files_processed += 1
 

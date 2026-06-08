@@ -235,7 +235,8 @@ class LinuxPersistenceDataSourceIngestModule(DataSourceIngestModule):
                 return ""
 
             # str(jarray) returns "array('b', [...])" — decode bytes to text instead.
-            return String(buffer, 0, total_read, "UTF-8")
+            # Debian user crontabs may include null-byte padding before the text body.
+            return String(buffer, 0, total_read, "UTF-8").replace("\x00", "")
         except Exception as ex:
             self.logger.log(
                 Level.WARNING,
