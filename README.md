@@ -57,23 +57,47 @@ When adding a module, create a sibling directory named after the module, place t
 
 ## Installation
 
-Autopsy discovers ingest modules from a per-user **python_modules** folder. Copy only the `.py` file (not the whole repository) unless you prefer to symlink or script deployment yourself.
+Autopsy discovers **Jython ingest modules** from a per-user `python_modules` folder. This is **not** the same as the Autopsy installation `modules` folder (which holds compiled Java `.jar` plugins).
 
 | Platform | Typical path |
 | --- | --- |
-| Windows | `%APPDATA%\autopsy\python_modules\` |
+| Windows | `%APPDATA%\Autopsy\python_modules\` |
 | Linux | `~/.autopsy/python_modules/` |
 | macOS | `~/Library/Application Support/autopsy/python_modules/` |
 
-**Example (Linux Shell History module on Windows):**
+Confirm the exact path in Autopsy: **Tools → Python Scripts** (opens the folder).
+
+#### Install layout (required)
+
+Autopsy only loads `.py` files that sit **inside a subfolder** of `python_modules`. A flat copy of the `.py` file into `python_modules` itself is ignored.
 
 ```text
-copy LinuxShellHistoryModule\LinuxShellHistoryModule.py %APPDATA%\autopsy\python_modules\
-copy LinuxPersistenceModule\LinuxPersistenceModule.py %APPDATA%\autopsy\python_modules\
-copy LinuxAuthLogModule\LinuxAuthLogModule.py %APPDATA%\autopsy\python_modules\
+%APPDATA%\Autopsy\python_modules\
+├── LinuxShellHistoryModule\
+│   └── LinuxShellHistoryModule.py
+├── LinuxPersistenceModule\
+│   └── LinuxPersistenceModule.py
+└── LinuxAuthLogModule\
+    └── LinuxAuthLogModule.py
 ```
 
-After copying, restart Autopsy. Modules appear in the ingest module list under their display names (see the [module catalog](#module-catalog)).
+**Example (Windows, from a clone of this repo):**
+
+```text
+xcopy /E /I LinuxShellHistoryModule %APPDATA%\Autopsy\python_modules\LinuxShellHistoryModule
+xcopy /E /I LinuxPersistenceModule %APPDATA%\Autopsy\python_modules\LinuxPersistenceModule
+xcopy /E /I LinuxAuthLogModule   %APPDATA%\Autopsy\python_modules\LinuxAuthLogModule
+```
+
+#### What is not required
+
+- **No compilation** — Python modules are interpreted by Jython at runtime.
+- **No NBI / `.jar` packaging** — that applies to Java modules only.
+- **No license file** in the module folder — the repo `LICENSE` governs source distribution; Autopsy does not require a separate license registration step.
+
+After copying, **restart Autopsy**. Then enable the modules under **Tools → Options → Ingest Modules** (or in the ingest profile when adding a data source). They appear under their display names (see the [module catalog](#module-catalog)).
+
+If a module fails to load, Autopsy usually shows an error dialog and writes details to `%APPDATA%\Autopsy\var\log\`.
 
 ---
 
