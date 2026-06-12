@@ -59,7 +59,7 @@ Tracking lateral movement, privilege escalation, and brute-force entry is fundam
 ## 4. Web Shell & Server Triage Module
 
 * **Module Type:** File Ingest Module
-* **Target Artifacts:** Apache (`/var/log/apache2/*`), Nginx (`/var/log/nginx/*`), and web root directories (`/var/www/html/`).
+* **Target Artifacts:** Apache (`/var/log/apache2/*`, `/var/log/httpd/*`), Nginx (`/var/log/nginx/*`), and web root directories (`/var/www/html/`, `/var/www/`, `/srv/www/`, and related paths).
 
 ### Description
 
@@ -69,3 +69,7 @@ Linux servers are high-value targets for web application exploitation, frequentl
 
 * **Log Pattern Matching:** Flags massive bursts of HTTP `404` errors (directory fuzzing) or URI query strings containing execution patterns (`whoami`, `cat /etc/passwd`, SQL injection strings).
 * **Rogue Script Detection:** Automatically surfaces newly created or heavily obfuscated `.php`, `.jsp`, or `.py` files residing within the web root.
+
+### Status
+
+Initial version complete

@@ -36,6 +36,8 @@ Autopsy_Linux_Plugins/
 │   └── LinuxPersistenceModule.py      # Data source ingest: persistence triage
 ├── LinuxAuthLogModule/
 │   └── LinuxAuthLogModule.py          # File ingest: SSH & authentication logs
+├── LinuxWebShellModule/
+│   └── LinuxWebShellModule.py         # File ingest: web logs and document roots
 └── <FutureModuleName>/                # One directory per module (same pattern)
     └── <FutureModuleName>.py
 ```
@@ -50,8 +52,8 @@ When adding a module, create a sibling directory named after the module, place t
 | --- | --- | --- | --- |
 | [Linux Shell History & Command Triage](#linux-shell-history--command-triage) | File Ingest | **Available** (v1.1.0) | [`LinuxShellHistoryModule/`](LinuxShellHistoryModule/) |
 | [Linux Persistence & Auto-Start Analyzer](#linux-persistence--auto-start-analyzer) | Data Source Ingest | **Available** (v1.0.1) | [`LinuxPersistenceModule/`](LinuxPersistenceModule/) |
-| [SSH & Authentication Log Parser](#ssh--authentication-log-parser) | File Ingest | **Available** (v1.0.0) | [`LinuxAuthLogModule/`](LinuxAuthLogModule/) |
-| [Web Shell & Server Triage](#web-shell--server-triage-planned) | File Ingest | Planned | — |
+| [SSH & Authentication Log Parser](#ssh--authentication-log-parser) | File Ingest | **Available** (v1.0.1) | [`LinuxAuthLogModule/`](LinuxAuthLogModule/) |
+| [Web Shell & Server Triage](#web-shell--server-triage) | File Ingest | **Available** (v1.0.0) | [`LinuxWebShellModule/`](LinuxWebShellModule/) |
 
 ---
 
@@ -77,8 +79,10 @@ Autopsy only loads `.py` files that sit **inside a subfolder** of `python_module
 │   └── LinuxShellHistoryModule.py
 ├── LinuxPersistenceModule\
 │   └── LinuxPersistenceModule.py
-└── LinuxAuthLogModule\
-    └── LinuxAuthLogModule.py
+├── LinuxAuthLogModule\
+│   └── LinuxAuthLogModule.py
+└── LinuxWebShellModule\
+    └── LinuxWebShellModule.py
 ```
 
 **Example (Windows, from a clone of this repo):**
@@ -87,6 +91,7 @@ Autopsy only loads `.py` files that sit **inside a subfolder** of `python_module
 xcopy /E /I LinuxShellHistoryModule %APPDATA%\Autopsy\python_modules\LinuxShellHistoryModule
 xcopy /E /I LinuxPersistenceModule %APPDATA%\Autopsy\python_modules\LinuxPersistenceModule
 xcopy /E /I LinuxAuthLogModule   %APPDATA%\Autopsy\python_modules\LinuxAuthLogModule
+xcopy /E /I LinuxWebShellModule  %APPDATA%\Autopsy\python_modules\LinuxWebShellModule
 ```
 
 #### What is not required
@@ -103,7 +108,7 @@ There is no separate **Ingest Modules** options page. Module selection is done t
 
 1. **Tools → Options → Ingest → Profiles**
 2. Select a profile (or click **New Profile**), then **Edit Profile**
-3. Tick the modules you want (e.g. *Linux Shell History & Command Triage*, *Linux Persistence & Auto-Start Analyzer*, *SSH & Authentication Log Parser*)
+3. Tick the modules you want (e.g. *Linux Shell History & Command Triage*, *Linux Persistence & Auto-Start Analyzer*, *SSH & Authentication Log Parser*, *Web Shell & Server Triage*)
 4. Save the profile
 
 Run ingest via **Tools → Run Ingest Modules** (or when adding a data source), and choose that profile — or pick **Custom Settings** in the wizard to configure modules per run.
@@ -304,13 +309,79 @@ Entries are posted as **Interesting File Hit** artifacts with:
 
 ---
 
-### Web Shell & Server Triage (planned)
+### Web Shell & Server Triage
 
-**Type:** File Ingest (planned)
+**Type:** File Ingest  
+**Display name:** Web Shell & Server Triage  
+**Version:** 1.0.0  
+**Source:** [`LinuxWebShellModule/LinuxWebShellModule.py`](LinuxWebShellModule/LinuxWebShellModule.py)
 
-Will combine web server log parsing (Apache, Nginx) with inspection of web roots such as `/var/www/html/`. Goal: flag suspicious access patterns (e.g. fuzzing bursts, suspicious query strings) and anomalous script files (`.php`, `.jsp`, `.py`) in web-accessible directories.
+#### Purpose
+
+Linux servers are frequent targets for web application exploitation and web shell deployment. This module applies two checks during file ingest: it parses Apache and Nginx access logs for exploitation indicators, and scans files in common web document roots for suspicious or obfuscated server-side scripts.
+
+#### Access logs processed
+
+| Log directory | Distribution |
+| --- | --- |
+| `/var/log/apache2/` | Debian/Ubuntu Apache |
+| `/var/log/httpd/` | RHEL/CentOS/Rocky Apache |
+| `/var/log/nginx/` | Nginx |
+
+File names: `access.log`, `access_log`, and uncompressed rotations (`access.log.*`, `access_log.*`). Compressed `.gz` logs are skipped in this version.
+
+#### Web roots scanned
+
+Script extensions (`.php`, `.jsp`, `.py`, and related) under:
+
+| Path | Notes |
+| --- | --- |
+| `/var/www/html/` | Default Apache/Nginx docroot |
+| `/var/www/` | Additional vhost content |
+| `/srv/www/` | Common alternate docroot |
+| `/usr/share/nginx/html/` | Package default Nginx root |
+| `/var/www/htdocs/` | Some distributions |
+
+#### Log analysis
+
+| Detection | Set name | Trigger |
+| --- | --- | --- |
+| Suspicious URI / query string | `Web Shell - Suspicious Access` | `whoami`, `/etc/passwd`, path traversal, `cmd=`, `eval(`, `union select`, and similar patterns in the request URI |
+| Directory fuzzing | `Web Shell - Directory Fuzzing` | One source IP generates 50+ HTTP `404` responses in a single access log |
+
+#### Script analysis
+
+| Detection | Set name | Trigger |
+| --- | --- | --- |
+| Known shell filename | `Web Shell - Suspicious Script` | Basename matches common web shell names (e.g. `shell.php`, `c99.php`, `wso.php`) |
+| Short PHP name | `Web Shell - Suspicious Script` | Single-letter `.php` file in a web root |
+| Obfuscated script | `Web Shell - Obfuscated Script` | Two or more obfuscation indicators in file content (e.g. `base64_decode`, `eval(`, `gzinflate`, `$_POST`) |
+
+#### Blackboard output
+
+Entries are posted as **Interesting File Hit** artifacts with:
+
+| Attribute | Content |
+| --- | --- |
+| Set name | One of the sets listed above |
+| Name | Event type (e.g. `Suspicious HTTP request`, `Obfuscated web script`) |
+| IP address | Remote client IP (access log hits) |
+| Program name | Request URI when applicable |
+| Description | HTTP status code when applicable |
+| Datetime | Parsed from access log timestamp when available |
+| Comment | Match detail, indicator labels, and raw log line or content preview |
+
+View hits under **Results → Interesting Items**, filtered by set name.
+
+#### Operational notes
+
+- Enable as a **file ingest** module when running ingest on a Linux server image.
+- Very large access logs are truncated to 50 MB per file; script content scans are capped at 1 MB.
+- Keyword and filename matching is triage, not proof of compromise—validate hits in context.
+- Built-in **Interesting Files Identifier** hits on web paths are separate from this module's parsed analysis.
 
 ---
+
 
 ## Contributing a new module
 
